@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Course de Boules - TikTok</title>
+  <style>
+    html, body {
+      margin: 0;
+      padding: 0;
+      overflow: hidden;
+      background: #111;
+    }
+    canvas {
+      display: block;
+      margin: auto;
+      background: #111;
+    }
+  </style>
+</head>
+<body>
+<canvas id="canvas"></canvas>
+<script>
+const canvas = document.getElementById("canvas");
+const ctx = canvas.getContext("2d");
+
+// Format vertical 9:16 (ex: 1080 x 1920)
+function resizeCanvas() {
+  const aspectRatio = 9 / 16;
+  if (window.innerWidth / window.innerHeight > aspectRatio) {
+    canvas.height = window.innerHeight;
+    canvas.width = window.innerHeight * aspectRatio;
+  } else {
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerWidth / aspectRatio;
+  }
+}
+resizeCanvas();
+window.addEventListener("resize", resizeCanvas);
+
+let cameraOffsetX = 0;
+let cameraOffsetY = 0;
+
+const GRAVITY = 0.4;
+const BOUNCE = 0.9;
+const FRICTION = 0.995;
+const TERMINAL_VX = 10;
+const TERMINAL_VY = 20;
+const BALL_RADIUS = 12;
+
+let floor = [];
+let floorX = 0;
+let floorY = 300;
+
+const INIT_SLOPE = 0.5;
+const INIT_FLAT = 10;
+let flatLeft = INIT_FLAT;
+
+const balls = [
+  { x: 50, y: 50, vx: 2, vy: 0, color: "lime", trail: [] },
+  { x: 70, y: 50, vx: 2, vy: 0, color: "red", trail: [] }
+];
+
+let finishLinePos = null;
+
+function generateNextFloorSegment() {
+  const step = 40;
+  for (let i = 0; i < 20; i++) {
+    let bump = 0;
+    if (flatLeft > 0) {
+      floorY += INIT_SLOPE * step;
+      flatLeft--;
+    } else {
+      const shapeType = Math.floor(Math.random() * 3);
+      if (shapeType === 0) bump = Math.random() * 40 - 20;
+      else if (shapeType === 1) bump = Math.sin(floor.length) * (Math.random() * 30);
+      else bump = (Math.random() < 0.5 ? -1 : 1) * Math.pow(Math.random(), 2) * 50;
+      floorY += INIT_SLOPE * step + bump;
+    }
+    floorX += step;
+    floor.push({ x: floorX, y: floorY });
+  }
+}
+
+function getGroundY(x) {
+  for (let i = 1; i < floor.length; i++) {
+    const p1 = floor[i - 1];
+    const p2 = floor[i];
+    if (x >= p1.x && x <= p2.x) {
+      const t = (x - p1.x) / (p2.x - p1.x);
+      return p1.y + t * (p2.y - p1.y);
+    }
+  }
+  return canvas.height + 100;
+}
+
+function getSlope(x) {
+  for (let i = 1; i < floor.length; i++) {
+    const p1 = floor[i - 1];
+    const p2 = floor[i];
+    if (x >= p1.x && x <= p2.x) {
+      return (p2.y - p1.y) / (p2.x - p1.x);
+    }
+  }
+  return 0;
+}
+
+function updateBalls() {
+  for (const ball of balls) {
+    ball.vy += GRAVITY;
+    ball.vx = Math.min(ball.vx * FRICTION, TERMINAL_VX);
+    ball.vy = Math.min(ball.vy * FRICTION, TERMINAL_VY);
+
+    ball.x += ball.vx;
+    ball.y += ball.vy;
+
+    const groundY = getGroundY(ball.x);
+    if (ball.y + BALL_RADIUS > groundY) {
+      ball.y = groundY - BALL_RADIUS;
+
+      const slope = getSlope(ball.x);
+      const angle = Math.atan(slope);
+
+      const boost = 1;
+      ball.vx += boost * Math.cos(angle);
+      ball.vy += boost * Math.sin(angle);
+
+      const speed = Math.sqrt(ball.vx ** 2 + ball.vy ** 2) * BOUNCE;
+      const normalX = -Math.sin(angle);
+      const normalY = Math.cos(angle);
+      const dot = ball.vx * normalX + ball.vy * normalY;
+      ball.vx -= 2 * dot * normalX;
+      ball.vy -= 2 * dot * normalY;
+      const norm = Math.sqrt(ball.vx ** 2 + ball.vy ** 2) || 1;
+      ball.vx = (ball.vx / norm) * speed * 0.9;
+      ball.vy = (ball.vy / norm) * speed * 0.9;
+    }
+
+    if (ball.x < cameraOffsetX - 200) {
+      ball.x = cameraOffsetX - 100;
+      ball.y = getGroundY(ball.x) - BALL_RADIUS - 20;
+      ball.vx = 2;
+      ball.vy = 0;
+      ball.trail = [];
+    }
+
+    ball.trail.unshift({ x: ball.x, y: ball.y, alpha: 1 });
+    if (ball.trail.length > 10) ball.trail.pop();
+    for (let t of ball.trail) t.alpha *= 0.9;
+  }
+}
+
+function drawGround() {
+  ctx.beginPath();
+  ctx.moveTo(floor[0].x, floor[0].y);
+  for (let p of floor) ctx.lineTo(p.x, p.y);
+  ctx.strokeStyle = "#fff";
+  ctx.lineWidth = 2;
+  ctx.stroke();
+}
+
+function drawBalls() {
+  for (const ball of balls) {
+    for (let t of ball.trail) {
+      ctx.beginPath();
+      ctx.arc(t.x, t.y, BALL_RADIUS, 0, Math.PI * 2);
+      ctx.fillStyle = `rgba(255,255,255,${t.alpha})`;
+      ctx.fill();
+    }
+    ctx.beginPath();
+    ctx.arc(ball.x, ball.y, BALL_RADIUS, 0, Math.PI * 2);
+    ctx.fillStyle = ball.color;
+    ctx.shadowColor = ball.color;
+    ctx.shadowBlur = 12;
+    ctx.fill();
+    ctx.shadowBlur = 0;
+  }
+}
+
+function drawCheckeredFinishLine() {
+  const squareSize = 20;
+  const patternCount = 3;
+
+  const elapsed = (performance.now() - startTime) / 1000;
+  if (elapsed < 55) return;
+
+  if (!finishLinePos) {
+    const leader = balls.reduce((a, b) => (a.x > b.x ? a : b));
+    const x = leader.x + 200;
+    const y = getGroundY(x) - 500; // abaissée pour format vertical
+    finishLinePos = { x, y };
+  }
+
+  for (let i = 0; i < 3 * canvas.height / squareSize; i++) {
+    for (let j = 0; j < patternCount; j++) {
+      const yPos = finishLinePos.y + i * squareSize;
+      const xPos = finishLinePos.x + j * squareSize;
+
+      ctx.fillStyle = (i + j) % 2 === 0 ? "white" : "black";
+      ctx.fillRect(xPos, yPos, squareSize, squareSize);
+    }
+  }
+}
+
+const startTime = performance.now();
+
+function animate() {
+  requestAnimationFrame(animate);
+
+  const leader = balls.reduce((a, b) => (a.x > b.x ? a : b));
+  const targetX = leader.x - canvas.width / 2;
+  const targetY = leader.y - canvas.height / 2.5; // vue légèrement abaissée
+
+  cameraOffsetX += (targetX - cameraOffsetX) * 0.1;
+  cameraOffsetY += (targetY - cameraOffsetY) * 0.1;
+
+  ctx.setTransform(1, 0, 0, 1, -cameraOffsetX, -cameraOffsetY);
+  ctx.fillStyle = "#111";
+  ctx.fillRect(cameraOffsetX, cameraOffsetY, canvas.width, canvas.height);
+
+  while (floor.length === 0 || floor[floor.length - 1].x < cameraOffsetX + canvas.width * 1.5) {
+    generateNextFloorSegment();
+  }
+  while (floor.length > 2 && floor[1].x < cameraOffsetX - 200) {
+    floor.shift();
+  }
+
+  updateBalls();
+  drawGround();
+  drawBalls();
+  drawCheckeredFinishLine();
+}
+
+generateNextFloorSegment();
+animate();
+</script>
+</body>
+</html>
